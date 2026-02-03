@@ -1,0 +1,41 @@
+[project]
+name = "ml-project-1"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.ruff]
+# Set max line length to 79
+line-length = 79
+
+[tool.ruff.lint]
+# Enable a solid baseline of rules
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade (modern Python syntax)
+    "B",   # flake8-bugbear (common bugs)
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+]
+
+# Ignore specific rules that might be too strict
+ignore = [
+    "E501",  # Line too long (let formatter handle it)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore import rules in __init__.py files
+"__init__.py" = ["F401"]
+# Ignore certain rules in test files
+"tests/**/*.py" = ["S101"]  # Allow assert statements in tests
+
+
+
