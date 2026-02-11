@@ -9,7 +9,11 @@ from sklearn.metrics import (
     mean_squared_error,
     r2_score,
 )
-from sklearn.model_selection import GridSearchCV, cross_val_score
+from sklearn.model_selection import (
+    GridSearchCV,
+    RandomizedSearchCV,
+    cross_val_score,
+)
 from sklearn.pipeline import Pipeline
 
 
@@ -72,3 +76,31 @@ def run_grid_search(
         grid.fit(X, y)
 
     return grid
+
+
+def run_randomized_search(
+    estimator,
+    X: pd.DataFrame,
+    y: pd.Series,
+    param_distributions: dict | None = None,
+    n_iter: int = 100,
+    cv: int = 5,
+    scoring: str = "neg_root_mean_squared_error",
+    random_state: int = 42,
+):
+    search = RandomizedSearchCV(
+        estimator=estimator,
+        param_distributions=param_distributions,
+        n_iter=n_iter,
+        scoring=scoring,
+        cv=cv,
+        n_jobs=-1,
+        refit=True,
+        random_state=random_state,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        search.fit(X, y)
+
+    return search

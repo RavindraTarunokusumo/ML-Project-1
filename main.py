@@ -8,7 +8,7 @@ import argparse
 from tqdm import tqdm
 
 from src.data import DataLoader
-from src.eval import evaluate_holdout, run_grid_search
+from src.eval import evaluate_holdout, run_grid_search, run_randomized_search
 from src.model import build_model_pipeline
 from src.preprocessing import SplitConfig, split_data, split_features_target
 
@@ -25,10 +25,10 @@ PARAM_GRID = {
     },
     "xgboost": {
         "model__n_estimators": [100, 300, 500, 1000],
-        "model__learning_rate": [0.01, 0.05, 0.1, 0.5, 1.0],
+        "model__learning_rate": [0.01, 0.05, 0.1, 0.5],
         "model__max_depth": [3, 6, 9, 12],
-        "model__subsample": [0.2, 0.6, 0.8, 1.0],
-        "model__colsample_bytree": [0.2, 0.6, 0.8, 1.0],
+        "model__subsample": [0.6, 0.8, 1.0],
+        "model__colsample_bytree": [0.6, 0.8, 1.0],
     },
 }
 
@@ -104,15 +104,26 @@ def main(args) -> None:
         ):
             estimator = build_model_pipeline(model_name, train[0])
             param_grid = PARAM_GRID.get(model_name)
-            grid_search = run_grid_search(
-                estimator,
-                train[0],
-                train[1],
-                param_grid=param_grid,
-                cv=5,
-            )
 
-            best = grid_search.best_estimator_
+            if model_name == "xgboost":
+                search = run_randomized_search(
+                    estimator,
+                    train[0],
+                    train[1],
+                    param_distributions=param_grid,
+                    n_iter=150,
+                    cv=5,
+                )
+            else:
+                search = run_grid_search(
+                    estimator,
+                    train[0],
+                    train[1],
+                    param_grid=param_grid,
+                    cv=5,
+                )
+
+            best = search.best_estimator_
 
             # Evaluate on validation set (holdout)
             if args.val_size > 0:

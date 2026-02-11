@@ -44,6 +44,7 @@ def build_elasticnet_pipeline(
         X,
         scale_numeric=True,
         use_pca=True,
+        pca_n_components=0.95,
         use_ordinal_encoding=use_ordinal_encoding,
         correct_skewness=correct_skewness,
     )
