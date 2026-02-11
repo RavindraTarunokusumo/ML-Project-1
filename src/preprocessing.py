@@ -10,7 +10,45 @@ from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import (
+    OneHotEncoder,
+    OrdinalEncoder,
+    StandardScaler,
+)
+
+# ── Ordinal encoding constants ─────────────────────────────────────
+# "None" is prepended so that absent features (from InformativeMissingFiller)
+# get the lowest rank.  OrdinalEncoder maps index → value, so None=0, Po=1…
+_QUALITY_SCALE = ["None", "Po", "Fa", "TA", "Gd", "Ex"]
+QUALITY_COLS = [
+    "ExterQual",
+    "ExterCond",
+    "KitchenQual",
+    "BsmtQual",
+    "BsmtCond",
+    "HeatingQC",
+    "FireplaceQu",
+    "GarageQual",
+    "GarageCond",
+]
+
+# Other ordinal features — each maps low → high
+ORDINAL_MAPPINGS: dict[str, list[str]] = {
+    "BsmtExposure": ["None", "No", "Mn", "Av", "Gd"],
+    "BsmtFinType1": ["None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ"],
+    "BsmtFinType2": ["None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ"],
+    "Functional": ["Sal", "Sev", "Maj2", "Maj1", "Mod", "Min2", "Min1", "Typ"],
+    "GarageFinish": ["None", "Unf", "RFn", "Fin"],
+    "PavedDrive": ["N", "P", "Y"],
+    "Fence": ["None", "MnWw", "GdWo", "MnPrv", "GdPrv"],
+    "LotShape": ["IR3", "IR2", "IR1", "Reg"],
+    "LandSlope": ["Sev", "Mod", "Gtl"],
+    "Utilities": ["NoSeWa", "AllPub"],
+    "CentralAir": ["N", "Y"],
+}
+
+# Union of all ordinal column names
+ALL_ORDINAL_COLS = set(QUALITY_COLS) | set(ORDINAL_MAPPINGS)
 
 # ── Informative missingness constants ──────────────────────────────
 # Columns where NaN means "feature absent", not "data missing"
@@ -112,6 +150,14 @@ def split_data(
     test_df = (X_test, y_test)
     return train_df, val_df, test_df
 
+def _ordinal_categories_for(col: str) -> list[str]:
+    """Return the ordered category list for an ordinal column."""
+    if col in ORDINAL_MAPPINGS:
+        return ORDINAL_MAPPINGS[col]
+    # Quality columns share the same scale
+    return _QUALITY_SCALE
+
+
 def build_preprocessor(
     X: pd.DataFrame,
     scale_numeric: bool = False,
@@ -119,37 +165,104 @@ def build_preprocessor(
     drop_columns: Iterable[str] | None = ("Id",),
     use_pca: bool = False,
     pca_n_components: int | float | None = None,
+    use_ordinal_encoding: bool = False,
 ) -> ColumnTransformer | Pipeline:
     drop_cols: set[str] = set()
     if drop_columns:
-        drop_cols.update(col for col in drop_columns if col in X.columns)
+        drop_cols.update(
+            col for col in drop_columns if col in X.columns
+        )
     if drop_missing_threshold is not None:
         missing_pct = X.isna().mean()
         drop_cols.update(
-            missing_pct[missing_pct > drop_missing_threshold].index.tolist()
+            missing_pct[
+                missing_pct > drop_missing_threshold
+            ].index.tolist()
         )
 
-    X_filtered = X.drop(columns=sorted(drop_cols), errors="ignore")
+    X_filtered = X.drop(
+        columns=sorted(drop_cols), errors="ignore"
+    )
 
-    numeric_features = X_filtered.select_dtypes(include=["number"]).columns
-    categorical_features = X_filtered.select_dtypes(exclude=["number"]).columns
+    numeric_features = X_filtered.select_dtypes(
+        include=["number"]
+    ).columns
+    categorical_features = X_filtered.select_dtypes(
+        exclude=["number"]
+    ).columns
 
+    # ── Numeric branch ─────────────────────────────────────────
     numeric_steps: list[tuple[str, object]] = [
         ("imputer", SimpleImputer(strategy="median")),
     ]
     if scale_numeric:
         numeric_steps.append(("scaler", StandardScaler()))
 
+    # ── Categorical branch (one-hot) ──────────────────────────
     categorical_steps = [
         ("imputer", SimpleImputer(strategy="most_frequent")),
-        ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        (
+            "onehot",
+            OneHotEncoder(
+                handle_unknown="ignore", sparse_output=False
+            ),
+        ),
     ]
 
+    # ── Ordinal branch (optional) ─────────────────────────────
+    if use_ordinal_encoding:
+        ordinal_cols = [
+            c
+            for c in categorical_features
+            if c in ALL_ORDINAL_COLS
+        ]
+        remaining_cat = [
+            c
+            for c in categorical_features
+            if c not in ALL_ORDINAL_COLS
+        ]
+
+        ordinal_categories = [
+            _ordinal_categories_for(c) for c in ordinal_cols
+        ]
+        ordinal_steps = [
+            (
+                "imputer",
+                SimpleImputer(strategy="most_frequent"),
+            ),
+            (
+                "encoder",
+                OrdinalEncoder(
+                    categories=ordinal_categories,
+                    handle_unknown="use_encoded_value",
+                    unknown_value=-1,
+                ),
+            ),
+        ]
+    else:
+        ordinal_cols = []
+        remaining_cat = list(categorical_features)
+
+    # ── Assemble ColumnTransformer ────────────────────────────
+    transformers = [
+        ("num", Pipeline(steps=numeric_steps), numeric_features),
+        (
+            "cat",
+            Pipeline(steps=categorical_steps),
+            remaining_cat,
+        ),
+    ]
+    if ordinal_cols:
+        transformers.append(
+            (
+                "ord",
+                Pipeline(steps=ordinal_steps),
+                ordinal_cols,
+            )
+        )
+
     preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", Pipeline(steps=numeric_steps), numeric_features),
-            ("cat", Pipeline(steps=categorical_steps), categorical_features),
-        ],
+        transformers=transformers,
         remainder="drop",
     )
     if not use_pca:

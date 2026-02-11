@@ -11,6 +11,7 @@ def _assemble_pipeline(
     model,
     *,
     fill_informative_missing: bool = False,
+    use_ordinal_encoding: bool = False,
 ):
     """Build the full pipeline with optional pre-processing steps."""
     steps: list[tuple[str, object]] = []
@@ -25,11 +26,15 @@ def build_elasticnet_pipeline(
     X: pd.DataFrame,
     *,
     fill_informative_missing: bool = False,
+    use_ordinal_encoding: bool = False,
 ):
     from sklearn.linear_model import ElasticNet
 
     preprocessor = build_preprocessor(
-        X, scale_numeric=True, use_pca=True
+        X,
+        scale_numeric=True,
+        use_pca=True,
+        use_ordinal_encoding=use_ordinal_encoding,
     )
     model = ElasticNet(random_state=42)
     return _assemble_pipeline(
@@ -43,11 +48,15 @@ def build_random_forest_pipeline(
     X: pd.DataFrame,
     *,
     fill_informative_missing: bool = False,
+    use_ordinal_encoding: bool = False,
 ):
     from sklearn.ensemble import RandomForestRegressor
 
     preprocessor = build_preprocessor(
-        X, scale_numeric=False, use_pca=False
+        X,
+        scale_numeric=False,
+        use_pca=False,
+        use_ordinal_encoding=use_ordinal_encoding,
     )
     model = RandomForestRegressor(
         n_estimators=300, random_state=42, n_jobs=-1
@@ -63,6 +72,7 @@ def build_xgboost_pipeline(
     X: pd.DataFrame,
     *,
     fill_informative_missing: bool = False,
+    use_ordinal_encoding: bool = False,
 ):
     try:
         from xgboost import XGBRegressor
@@ -73,7 +83,10 @@ def build_xgboost_pipeline(
         ) from exc
 
     preprocessor = build_preprocessor(
-        X, scale_numeric=False, use_pca=False
+        X,
+        scale_numeric=False,
+        use_pca=False,
+        use_ordinal_encoding=use_ordinal_encoding,
     )
     model = XGBRegressor(
         n_estimators=500,
@@ -97,9 +110,11 @@ def build_model_pipeline(
     X: pd.DataFrame,
     *,
     fill_informative_missing: bool = False,
+    use_ordinal_encoding: bool = False,
 ):
     kwargs = {
         "fill_informative_missing": fill_informative_missing,
+        "use_ordinal_encoding": use_ordinal_encoding,
     }
     name = model_name.lower()
     if name in {"elasticnet", "enet", "elastic_net"}:
