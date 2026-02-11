@@ -4,19 +4,13 @@
 # Or adjust PARAM_GRID for lighter runs
 
 import argparse
+
 from tqdm import tqdm
 
-from src.preprocessing import (
-    split_features_target, 
-    split_data, 
-    SplitConfig
-)
 from src.data import DataLoader
+from src.eval import run_grid_search, validate_model
 from src.model import build_model_pipeline
-from src.eval import (
-    validate_model,
-    run_grid_search
-)
+from src.preprocessing import SplitConfig, split_data, split_features_target
 
 PARAM_GRID = {
     "elasticnet": {
@@ -90,30 +84,35 @@ def main(args) -> None:
     
     # 3.2 models pipeline
     if args.optimize:
+        scores_optim = {
+            "validation": {},
+            "evaluation": {}
+        }
+
         for model_name in tqdm(model_names, desc="Optimizing models"):
             pipeline = build_model_pipeline(model_name, train[0])
-            
+
             # 4.2 model training with GridSearchCV
             grid_search = run_grid_search(
                 model_name, train[0], train[1],
-                param_grid=PARAM_GRID.get(model_name, None),
+                param_grid=PARAM_GRID.get(model_name),
                 cv=5, scoring="neg_mean_squared_error"
             )
-            
+
             # 5.2 model evaluation on validation set
-            val_score = validate_model(grid_search.best_estimator_, val[0], val[1], cv=5)   
-            
+            val_score = validate_model(grid_search.best_estimator_, val[0], val[1], cv=5)
+
             # 6.2 final test evaluation
             eval_score = grid_search.best_estimator_.score(test[0], test[1])
-            
+
             # 7.2 save scores
-            scores_basic["validation"][model_name] = val_score
-            scores_basic["evaluation"][model_name] = eval_score
-        
+            scores_optim["validation"][model_name] = val_score
+            scores_optim["evaluation"][model_name] = eval_score
+
         # 8.2 final scores output
         print("\n" + "="*40)
         print("Final Evaluation Scores (Optimized):")
-        for model_name, score in scores_basic["evaluation"].items():
+        for model_name, score in scores_optim["evaluation"].items():
             print(f"{model_name}: R^2 = {score:.4f}")
         print("="*40 + "\n")
     
@@ -121,8 +120,8 @@ if __name__ == "__main__":
     args = argparse.ArgumentParser(description="Run model training and evaluation")
     args.add_argument("--dataset", type=str, default="house_prices", help="OpenML dataset name")
     args.add_argument("--target_col", type=str, default="SalePrice", help="Target column name")
-    args.add_argument("--val_size", type=float, default=0.4, help="Validation set size (relative)")
-    args.add_argument("--test_size", type=float, default=0.2, help="Test set size (relative)")
+    args.add_argument("--val_size", type=float, default=0.15, help="Validation set size (relative)")
+    args.add_argument("--test_size", type=float, default=0.15, help="Test set size (relative)")
     args.add_argument("--random_state", type=int, default=42, help="Random state for reproducibility")
     args.add_argument("--optimize", action="store_true", help="Whether to run GridSearch optimization")
     args = args.parse_args()
