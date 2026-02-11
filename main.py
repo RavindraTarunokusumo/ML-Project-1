@@ -62,6 +62,15 @@ def main(args) -> None:
         random_state=args.random_state,
     )
 
+    # Pipeline construction kwargs (from CLI flags)
+    pipeline_kwargs = {
+        "fill_informative_missing": args.fill_missing,
+        "use_ordinal_encoding": args.ordinal,
+        "feature_engineering": args.engineer,
+        "correct_skewness": args.correct_skew,
+        "log_target": args.log_target,
+    }
+
     # 1. model and data loading
     model_names = ["elasticnet", "random_forest", "xgboost"]
     df = DataLoader.load_data_from_openml(dataset_name=dataset)
@@ -75,7 +84,9 @@ def main(args) -> None:
     scores_basic = {}
 
     for model_name in tqdm(model_names, desc="Training models"):
-        pipeline = build_model_pipeline(model_name, train[0])
+        pipeline = build_model_pipeline(
+            model_name, train[0], **pipeline_kwargs
+        )
         pipeline.fit(train[0], train[1])
 
         # Evaluate on validation set (holdout, no re-fitting)
@@ -102,8 +113,14 @@ def main(args) -> None:
         for model_name in tqdm(
             model_names, desc="Optimizing models"
         ):
-            estimator = build_model_pipeline(model_name, train[0])
+            estimator = build_model_pipeline(
+                model_name, train[0], **pipeline_kwargs
+            )
             param_grid = PARAM_GRID.get(model_name)
+            if param_grid and args.log_target:
+                param_grid = _prefix_param_grid(
+                    param_grid, "regressor__"
+                )
 
             if model_name == "xgboost":
                 search = run_randomized_search(
@@ -182,6 +199,31 @@ if __name__ == "__main__":
         "--optimize",
         action="store_true",
         help="Whether to run GridSearch optimization",
+    )
+    args.add_argument(
+        "--log_target",
+        action="store_true",
+        help="Apply log1p transform to target variable",
+    )
+    args.add_argument(
+        "--fill_missing",
+        action="store_true",
+        help="Fill informative missing values (NaN = absent)",
+    )
+    args.add_argument(
+        "--ordinal",
+        action="store_true",
+        help="Use ordinal encoding for quality features",
+    )
+    args.add_argument(
+        "--engineer",
+        action="store_true",
+        help="Add engineered features (TotalSF, TotalBath, etc.)",
+    )
+    args.add_argument(
+        "--correct_skew",
+        action="store_true",
+        help="Apply log1p to skewed numeric features",
     )
     args = args.parse_args()
     main(args)
