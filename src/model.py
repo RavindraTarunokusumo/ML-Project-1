@@ -104,7 +104,6 @@ def build_xgboost_pipeline(
     preprocessor = build_preprocessor(
         X,
         scale_numeric=False,
-        use_pca=False,
         use_ordinal_encoding=use_ordinal_encoding,
         correct_skewness=correct_skewness,
     )

@@ -8,7 +8,7 @@ import argparse
 from tqdm import tqdm
 
 from src.data import DataLoader
-from src.eval import evaluate_holdout, run_grid_search, run_randomized_search
+from src.eval import evaluate_holdout, run_grid_search, run_randomized_search, print_scores
 from src.model import build_model_pipeline
 from src.preprocessing import SplitConfig, split_data, split_features_target
 
@@ -36,21 +36,6 @@ PARAM_GRID = {
 def _prefix_param_grid(grid: dict, prefix: str) -> dict:
     """Prefix all keys in a param grid dict (for TransformedTargetRegressor)."""
     return {f"{prefix}{k}": v for k, v in grid.items()}
-
-
-def _print_scores(label, scores):
-    """Print a scores dict with consistent RMSE / MAE / R^2 formatting."""
-    print(f"\n{'=' * 50}")
-    print(label)
-    for name, s in scores.items():
-        print(
-            f"  {name}: "
-            f"RMSE={s['rmse']:.2f}  "
-            f"MAE={s['mae']:.2f}  "
-            f"R^2={s['r2']:.4f}"
-        )
-    print("=" * 50 + "\n")
-
 
 def main(args) -> None:
     # Configuration
@@ -103,7 +88,7 @@ def main(args) -> None:
             pipeline, test[0], test[1]
         )
 
-    _print_scores("Final Evaluation Scores:", scores_basic)
+    print_scores("Final Evaluation Scores:", scores_basic)
 
     ### ---------- Optimized Run (w/ GridSearch) ---------- ###
 
@@ -156,7 +141,7 @@ def main(args) -> None:
                 best, test[0], test[1]
             )
 
-        _print_scores(
+        print_scores(
             "Final Evaluation Scores (Optimized):", scores_optim
         )
 
