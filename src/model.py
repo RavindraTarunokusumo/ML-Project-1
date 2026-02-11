@@ -3,7 +3,11 @@ from __future__ import annotations
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-from src.preprocessing import InformativeMissingFiller, build_preprocessor
+from src.preprocessing import (
+    FeatureEngineer,
+    InformativeMissingFiller,
+    build_preprocessor,
+)
 
 
 def _assemble_pipeline(
@@ -11,12 +15,14 @@ def _assemble_pipeline(
     model,
     *,
     fill_informative_missing: bool = False,
-    use_ordinal_encoding: bool = False,
+    feature_engineering: bool = False,
 ):
     """Build the full pipeline with optional pre-processing steps."""
     steps: list[tuple[str, object]] = []
     if fill_informative_missing:
         steps.append(("fill_missing", InformativeMissingFiller()))
+    if feature_engineering:
+        steps.append(("engineer", FeatureEngineer()))
     steps.append(("preprocess", preprocessor))
     steps.append(("model", model))
     return Pipeline(steps=steps)
@@ -27,6 +33,7 @@ def build_elasticnet_pipeline(
     *,
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
+    feature_engineering: bool = False,
 ):
     from sklearn.linear_model import ElasticNet
 
@@ -41,6 +48,7 @@ def build_elasticnet_pipeline(
         preprocessor,
         model,
         fill_informative_missing=fill_informative_missing,
+        feature_engineering=feature_engineering,
     )
 
 
@@ -49,6 +57,7 @@ def build_random_forest_pipeline(
     *,
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
+    feature_engineering: bool = False,
 ):
     from sklearn.ensemble import RandomForestRegressor
 
@@ -65,6 +74,7 @@ def build_random_forest_pipeline(
         preprocessor,
         model,
         fill_informative_missing=fill_informative_missing,
+        feature_engineering=feature_engineering,
     )
 
 
@@ -73,6 +83,7 @@ def build_xgboost_pipeline(
     *,
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
+    feature_engineering: bool = False,
 ):
     try:
         from xgboost import XGBRegressor
@@ -102,6 +113,7 @@ def build_xgboost_pipeline(
         preprocessor,
         model,
         fill_informative_missing=fill_informative_missing,
+        feature_engineering=feature_engineering,
     )
 
 
@@ -111,10 +123,12 @@ def build_model_pipeline(
     *,
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
+    feature_engineering: bool = False,
 ):
     kwargs = {
         "fill_informative_missing": fill_informative_missing,
         "use_ordinal_encoding": use_ordinal_encoding,
+        "feature_engineering": feature_engineering,
     }
     name = model_name.lower()
     if name in {"elasticnet", "enet", "elastic_net"}:

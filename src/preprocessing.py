@@ -78,6 +78,32 @@ INFORMATIVE_MISSING_NUM = [
 ]
 
 
+class FeatureEngineer(BaseEstimator, TransformerMixin):
+    """Create composite features when source columns are present."""
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        X = X.copy()
+        if {"1stFlrSF", "2ndFlrSF", "TotalBsmtSF"}.issubset(X.columns):
+            X["TotalSF"] = X["1stFlrSF"] + X["2ndFlrSF"] + X["TotalBsmtSF"]
+        if {"FullBath", "HalfBath", "BsmtFullBath", "BsmtHalfBath"}.issubset(
+            X.columns
+        ):
+            X["TotalBath"] = (
+                X["FullBath"]
+                + 0.5 * X["HalfBath"]
+                + X["BsmtFullBath"]
+                + 0.5 * X["BsmtHalfBath"]
+            )
+        if "YearBuilt" in X.columns and "YrSold" in X.columns:
+            X["HouseAge"] = X["YrSold"] - X["YearBuilt"]
+        if "YearRemodAdd" in X.columns and "YrSold" in X.columns:
+            X["RemodAge"] = X["YrSold"] - X["YearRemodAdd"]
+        return X
+
+
 class InformativeMissingFiller(BaseEstimator, TransformerMixin):
     """Fill NaN with 'None'/0 for features where missingness means absence."""
 
