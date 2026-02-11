@@ -8,7 +8,12 @@ import argparse
 from tqdm import tqdm
 
 from src.data import DataLoader
-from src.eval import evaluate_holdout, run_grid_search, run_randomized_search, print_scores
+from src.eval import (
+    evaluate_holdout,
+    print_scores,
+    run_grid_search,
+    run_randomized_search,
+)
 from src.model import build_model_pipeline
 from src.preprocessing import SplitConfig, split_data, split_features_target
 
@@ -29,6 +34,12 @@ PARAM_GRID = {
         "model__max_depth": [3, 6, 9, 12],
         "model__subsample": [0.6, 0.8, 1.0],
         "model__colsample_bytree": [0.6, 0.8, 1.0],
+    },
+    "catboost": {
+        "model__iterations": [300, 500, 800, 1000],
+        "model__learning_rate": [0.01, 0.05, 0.1, 0.3],
+        "model__depth": [4, 6, 8, 10],
+        "model__l2_leaf_reg": [1, 3, 5, 7],
     },
 }
 
@@ -57,7 +68,9 @@ def main(args) -> None:
     }
 
     # 1. model and data loading
-    model_names = ["elasticnet", "random_forest", "xgboost"]
+    model_names = [
+        "elasticnet", "random_forest", "xgboost", "catboost",
+    ]
     df = DataLoader.load_data_from_openml(dataset_name=dataset)
 
     # 2. data splitting
@@ -107,7 +120,7 @@ def main(args) -> None:
                     param_grid, "regressor__"
                 )
 
-            if model_name == "xgboost":
+            if model_name in {"xgboost", "catboost"}:
                 search = run_randomized_search(
                     estimator,
                     train[0],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.pipeline import Pipeline
 
@@ -125,6 +126,88 @@ def build_xgboost_pipeline(
     )
 
 
+class _CatBoostRegressorWrapper(BaseEstimator, RegressorMixin):
+    """Thin sklearn-compatible wrapper around CatBoostRegressor.
+
+    Needed because CatBoost <=1.2 lacks the __sklearn_tags__
+    protocol required by scikit-learn >=1.6.
+    """
+
+    def __init__(
+        self,
+        iterations=500,
+        learning_rate=0.05,
+        depth=6,
+        l2_leaf_reg=3,
+        random_seed=42,
+        verbose=0,
+        **kwargs,
+    ):
+        self.iterations = iterations
+        self.learning_rate = learning_rate
+        self.depth = depth
+        self.l2_leaf_reg = l2_leaf_reg
+        self.random_seed = random_seed
+        self.verbose = verbose
+        self._extra_kwargs = kwargs
+
+    def fit(self, X, y, **fit_params):
+        from catboost import CatBoostRegressor
+
+        self.model_ = CatBoostRegressor(
+            iterations=self.iterations,
+            learning_rate=self.learning_rate,
+            depth=self.depth,
+            l2_leaf_reg=self.l2_leaf_reg,
+            random_seed=self.random_seed,
+            verbose=self.verbose,
+            **self._extra_kwargs,
+        )
+        self.model_.fit(X, y, **fit_params)
+        return self
+
+    def predict(self, X):
+        return self.model_.predict(X)
+
+
+def build_catboost_pipeline(
+    X: pd.DataFrame,
+    *,
+    fill_informative_missing: bool = False,
+    use_ordinal_encoding: bool = False,
+    feature_engineering: bool = False,
+    correct_skewness: bool = False,
+):
+    try:
+        import catboost  # noqa: F401
+    except Exception as exc:  # pragma: no cover
+        raise ImportError(
+            "CatBoost is not installed. "
+            "Install with `pip install catboost`."
+        ) from exc
+
+    preprocessor = build_preprocessor(
+        X,
+        scale_numeric=False,
+        use_ordinal_encoding=use_ordinal_encoding,
+        correct_skewness=correct_skewness,
+    )
+    model = _CatBoostRegressorWrapper(
+        iterations=500,
+        learning_rate=0.05,
+        depth=6,
+        l2_leaf_reg=3,
+        random_seed=42,
+        verbose=0,
+    )
+    return _assemble_pipeline(
+        preprocessor,
+        model,
+        fill_informative_missing=fill_informative_missing,
+        feature_engineering=feature_engineering,
+    )
+
+
 def build_model_pipeline(
     model_name: str,
     X: pd.DataFrame,
@@ -148,6 +231,8 @@ def build_model_pipeline(
         pipeline = build_random_forest_pipeline(X, **kwargs)
     elif name in {"xgboost", "xgb"}:
         pipeline = build_xgboost_pipeline(X, **kwargs)
+    elif name in {"catboost", "cb"}:
+        pipeline = build_catboost_pipeline(X, **kwargs)
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
