@@ -1,15 +1,60 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Tuple
 
 import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+# ── Informative missingness constants ──────────────────────────────
+# Columns where NaN means "feature absent", not "data missing"
+INFORMATIVE_MISSING_CAT = [
+    "FireplaceQu",
+    "GarageType",
+    "GarageFinish",
+    "GarageQual",
+    "GarageCond",
+    "BsmtQual",
+    "BsmtCond",
+    "BsmtExposure",
+    "BsmtFinType1",
+    "BsmtFinType2",
+    "Fence",
+]
+INFORMATIVE_MISSING_NUM = [
+    "GarageYrBlt",
+    "GarageArea",
+    "GarageCars",
+    "BsmtFinSF1",
+    "BsmtFinSF2",
+    "BsmtUnfSF",
+    "TotalBsmtSF",
+    "BsmtFullBath",
+    "BsmtHalfBath",
+]
+
+
+class InformativeMissingFiller(BaseEstimator, TransformerMixin):
+    """Fill NaN with 'None'/0 for features where missingness means absence."""
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        X = X.copy()
+        for col in INFORMATIVE_MISSING_CAT:
+            if col in X.columns:
+                X[col] = X[col].fillna("None")
+        for col in INFORMATIVE_MISSING_NUM:
+            if col in X.columns:
+                X[col] = X[col].fillna(0)
+        return X
 
 
 @dataclass(frozen=True)
@@ -22,7 +67,7 @@ class SplitConfig:
 
 def split_features_target(
     df: pd.DataFrame, target_col: str = "SalePrice"
-) -> Tuple[pd.DataFrame, pd.Series]:
+) -> tuple[pd.DataFrame, pd.Series]:
     if target_col not in df.columns:
         raise KeyError(f"Target column not found: {target_col}")
     X = df.drop(columns=[target_col])
@@ -32,7 +77,7 @@ def split_features_target(
 
 def split_data(
     X: pd.DataFrame, y: pd.Series, cfg: SplitConfig | None = None
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     cfg = cfg or SplitConfig()
     holdout_size = cfg.val_size + cfg.test_size
     
