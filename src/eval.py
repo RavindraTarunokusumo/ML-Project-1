@@ -14,6 +14,7 @@ from sklearn.model_selection import (
     GridSearchCV,
     RandomizedSearchCV,
     cross_val_score,
+    cross_validate,
 )
 from sklearn.pipeline import Pipeline
 
@@ -57,27 +58,29 @@ def evaluate_holdout(
     }
 
 
-def validate_model(
-    model: Pipeline,
-    X: pd.DataFrame,
-    y: pd.Series,
-    cv: int = 5,
-) -> float:
-    """Cross-validation returning average RMSE.
+def evaluate_cv(
+    model, X: pd.DataFrame, y: pd.Series, cv: int = 5
+) -> dict[str, float]:
+    """Perform k-fold cross-validation and return average metrics.
 
-    Note: this re-fits the model on each CV fold.
-    For evaluating a pre-fitted model, use evaluate_holdout().
+    Returns dict with keys: rmse, mae, mape, r2.
     """
-    neg_rmse_scores = cross_val_score(
-        model,
-        X,
-        y,
-        scoring="neg_root_mean_squared_error",
-        cv=cv,
-        n_jobs=-1,
+    scoring = {
+        "rmse": "neg_root_mean_squared_error",
+        "mae": "neg_mean_absolute_error",
+        "mape": "neg_mean_absolute_percentage_error",
+        "r2": "r2",
+    }
+    cv_results = cross_validate(
+        model, X, y, cv=cv, scoring=scoring, n_jobs=-1
     )
-    return float(-neg_rmse_scores.mean())
-
+    return {
+        "rmse": float(-cv_results["test_rmse"].mean()),
+        "mae": float(-cv_results["test_mae"].mean()),
+        "mape": float(-cv_results["test_mape"].mean()),
+        "r2": float(cv_results["test_r2"].mean()),
+    }
+        
 
 def run_grid_search(
     estimator,
