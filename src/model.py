@@ -7,7 +7,7 @@ from src.preprocessing import build_preprocessor
 def build_elasticnet_pipeline(X: pd.DataFrame):
     from sklearn.linear_model import ElasticNet
 
-    preprocessor = build_preprocessor(X, scale_numeric=True)
+    preprocessor = build_preprocessor(X, scale_numeric=True, use_pca=True)
     model = ElasticNet(random_state=42)
     return Pipeline(steps=[("preprocess", preprocessor), ("model", model)])
 
@@ -15,7 +15,7 @@ def build_elasticnet_pipeline(X: pd.DataFrame):
 def build_random_forest_pipeline(X: pd.DataFrame):
     from sklearn.ensemble import RandomForestRegressor
 
-    preprocessor = build_preprocessor(X, scale_numeric=False)
+    preprocessor = build_preprocessor(X, scale_numeric=False, use_pca=False)
     model = RandomForestRegressor(
         n_estimators=300, random_state=42, n_jobs=-1
     )
@@ -30,7 +30,7 @@ def build_xgboost_pipeline(X: pd.DataFrame):
             "XGBoost is not installed. Install with `pip install xgboost`."
         ) from exc
 
-    preprocessor = build_preprocessor(X, scale_numeric=False)
+    preprocessor = build_preprocessor(X, scale_numeric=False, use_pca=False)
     model = XGBRegressor(
         n_estimators=500,
         learning_rate=0.05,

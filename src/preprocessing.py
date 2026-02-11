@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Iterable, Tuple
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
@@ -44,6 +45,10 @@ def split_data(
         shuffle=cfg.shuffle,
     )
     
+    if cfg.val_size == 0:
+        # No validation set, return test only
+        return (X_train, y_train), (pd.DataFrame(), pd.Series()), (X_holdout, y_holdout)
+    
     # Get relative test size
     test_ratio = cfg.test_size / holdout_size
     
@@ -63,10 +68,26 @@ def split_data(
     return train_df, val_df, test_df
 
 def build_preprocessor(
-    X: pd.DataFrame, scale_numeric: bool = False
-) -> ColumnTransformer:
-    numeric_features = X.select_dtypes(include=["number"]).columns
-    categorical_features = X.select_dtypes(exclude=["number"]).columns
+    X: pd.DataFrame,
+    scale_numeric: bool = False,
+    drop_missing_threshold: float | None = 0.8,
+    drop_columns: Iterable[str] | None = ("Id",),
+    use_pca: bool = False,
+    pca_n_components: int | float | None = None,
+) -> ColumnTransformer | Pipeline:
+    drop_cols: set[str] = set()
+    if drop_columns:
+        drop_cols.update(col for col in drop_columns if col in X.columns)
+    if drop_missing_threshold is not None:
+        missing_pct = X.isna().mean()
+        drop_cols.update(
+            missing_pct[missing_pct > drop_missing_threshold].index.tolist()
+        )
+
+    X_filtered = X.drop(columns=sorted(drop_cols), errors="ignore")
+
+    numeric_features = X_filtered.select_dtypes(include=["number"]).columns
+    categorical_features = X_filtered.select_dtypes(exclude=["number"]).columns
 
     numeric_steps: list[tuple[str, object]] = [
         ("imputer", SimpleImputer(strategy="median")),
@@ -86,4 +107,16 @@ def build_preprocessor(
         ],
         remainder="drop",
     )
-    return preprocessor
+    if not use_pca:
+        return preprocessor
+
+    pca_kwargs: dict[str, int | float] = {}
+    if pca_n_components is not None:
+        pca_kwargs["n_components"] = pca_n_components
+
+    return Pipeline(
+        steps=[
+            ("preprocess", preprocessor),
+            ("pca", PCA(**pca_kwargs)),
+        ]
+    )
