@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
@@ -121,6 +122,35 @@ class InformativeMissingFiller(BaseEstimator, TransformerMixin):
         return X
 
 
+class SkewnessCorrector(BaseEstimator, TransformerMixin):
+    """Apply log1p to numeric columns with absolute skewness above threshold."""
+
+    def __init__(self, threshold: float = 0.75):
+        self.threshold = threshold
+
+    def fit(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            skew = X.skew(numeric_only=True)
+        else:
+            skew = pd.DataFrame(X).skew()
+        self.skewed_cols_ = skew[skew.abs() > self.threshold].index.tolist()
+        return self
+
+    def transform(self, X):
+        X = X.copy()
+        if isinstance(X, pd.DataFrame):
+            for col in self.skewed_cols_:
+                if col in X.columns:
+                    X[col] = np.log1p(X[col].clip(lower=0))
+        else:
+            X = pd.DataFrame(X)
+            for idx in self.skewed_cols_:
+                if idx < X.shape[1]:
+                    X.iloc[:, idx] = np.log1p(X.iloc[:, idx].clip(lower=0))
+            X = X.values
+        return X
+
+
 @dataclass(frozen=True)
 class SplitConfig:
     val_size: float = 0.3
@@ -192,6 +222,7 @@ def build_preprocessor(
     use_pca: bool = False,
     pca_n_components: int | float | None = None,
     use_ordinal_encoding: bool = False,
+    correct_skewness: bool = False,
 ) -> ColumnTransformer | Pipeline:
     drop_cols: set[str] = set()
     if drop_columns:
@@ -221,6 +252,8 @@ def build_preprocessor(
     numeric_steps: list[tuple[str, object]] = [
         ("imputer", SimpleImputer(strategy="median")),
     ]
+    if correct_skewness:
+        numeric_steps.append(("skew_fix", SkewnessCorrector()))
     if scale_numeric:
         numeric_steps.append(("scaler", StandardScaler()))
 

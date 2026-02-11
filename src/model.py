@@ -36,6 +36,7 @@ def build_elasticnet_pipeline(
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
     feature_engineering: bool = False,
+    correct_skewness: bool = False,
 ):
     from sklearn.linear_model import ElasticNet
 
@@ -44,6 +45,7 @@ def build_elasticnet_pipeline(
         scale_numeric=True,
         use_pca=True,
         use_ordinal_encoding=use_ordinal_encoding,
+        correct_skewness=correct_skewness,
     )
     model = ElasticNet(random_state=42)
     return _assemble_pipeline(
@@ -60,6 +62,7 @@ def build_random_forest_pipeline(
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
     feature_engineering: bool = False,
+    correct_skewness: bool = False,
 ):
     from sklearn.ensemble import RandomForestRegressor
 
@@ -68,6 +71,7 @@ def build_random_forest_pipeline(
         scale_numeric=False,
         use_pca=False,
         use_ordinal_encoding=use_ordinal_encoding,
+        correct_skewness=correct_skewness,
     )
     model = RandomForestRegressor(
         n_estimators=300, random_state=42, n_jobs=-1
@@ -86,6 +90,7 @@ def build_xgboost_pipeline(
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
     feature_engineering: bool = False,
+    correct_skewness: bool = False,
 ):
     try:
         from xgboost import XGBRegressor
@@ -100,6 +105,7 @@ def build_xgboost_pipeline(
         scale_numeric=False,
         use_pca=False,
         use_ordinal_encoding=use_ordinal_encoding,
+        correct_skewness=correct_skewness,
     )
     model = XGBRegressor(
         n_estimators=500,
@@ -126,12 +132,14 @@ def build_model_pipeline(
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
     feature_engineering: bool = False,
+    correct_skewness: bool = False,
     log_target: bool = False,
 ):
     kwargs = {
         "fill_informative_missing": fill_informative_missing,
         "use_ordinal_encoding": use_ordinal_encoding,
         "feature_engineering": feature_engineering,
+        "correct_skewness": correct_skewness,
     }
     name = model_name.lower()
     if name in {"elasticnet", "enet", "elastic_net"}:
