@@ -33,6 +33,11 @@ PARAM_GRID = {
 }
 
 
+def _prefix_param_grid(grid: dict, prefix: str) -> dict:
+    """Prefix all keys in a param grid dict (for TransformedTargetRegressor)."""
+    return {f"{prefix}{k}": v for k, v in grid.items()}
+
+
 def _print_scores(label, scores):
     """Print a scores dict with consistent RMSE / MAE / R^2 formatting."""
     print(f"\n{'=' * 50}")
@@ -97,11 +102,13 @@ def main(args) -> None:
         for model_name in tqdm(
             model_names, desc="Optimizing models"
         ):
+            estimator = build_model_pipeline(model_name, train[0])
+            param_grid = PARAM_GRID.get(model_name)
             grid_search = run_grid_search(
-                model_name,
+                estimator,
                 train[0],
                 train[1],
-                param_grid=PARAM_GRID.get(model_name),
+                param_grid=param_grid,
                 cv=5,
             )
 

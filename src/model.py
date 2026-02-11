@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.pipeline import Pipeline
 
 from src.preprocessing import (
@@ -124,6 +126,7 @@ def build_model_pipeline(
     fill_informative_missing: bool = False,
     use_ordinal_encoding: bool = False,
     feature_engineering: bool = False,
+    log_target: bool = False,
 ):
     kwargs = {
         "fill_informative_missing": fill_informative_missing,
@@ -132,9 +135,18 @@ def build_model_pipeline(
     }
     name = model_name.lower()
     if name in {"elasticnet", "enet", "elastic_net"}:
-        return build_elasticnet_pipeline(X, **kwargs)
-    if name in {"randomforest", "random_forest", "rf"}:
-        return build_random_forest_pipeline(X, **kwargs)
-    if name in {"xgboost", "xgb"}:
-        return build_xgboost_pipeline(X, **kwargs)
-    raise ValueError(f"Unknown model name: {model_name}")
+        pipeline = build_elasticnet_pipeline(X, **kwargs)
+    elif name in {"randomforest", "random_forest", "rf"}:
+        pipeline = build_random_forest_pipeline(X, **kwargs)
+    elif name in {"xgboost", "xgb"}:
+        pipeline = build_xgboost_pipeline(X, **kwargs)
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
+
+    if log_target:
+        return TransformedTargetRegressor(
+            regressor=pipeline,
+            func=np.log1p,
+            inverse_func=np.expm1,
+        )
+    return pipeline

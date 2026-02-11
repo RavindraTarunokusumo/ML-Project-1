@@ -12,8 +12,6 @@ from sklearn.metrics import (
 from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.pipeline import Pipeline
 
-from src.model import build_model_pipeline
-
 
 def evaluate_holdout(
     model, X: pd.DataFrame, y: pd.Series
@@ -53,16 +51,15 @@ def validate_model(
 
 
 def run_grid_search(
-    model_name: str,
+    estimator,
     X: pd.DataFrame,
     y: pd.Series,
     param_grid: dict | None = None,
     cv: int = 5,
     scoring: str = "neg_root_mean_squared_error",
 ):
-    pipeline = build_model_pipeline(model_name, X)
     grid = GridSearchCV(
-        estimator=pipeline,
+        estimator=estimator,
         param_grid=param_grid,
         scoring=scoring,
         cv=cv,
