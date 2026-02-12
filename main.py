@@ -185,9 +185,10 @@ def main(args) -> None:
             save_path = save_model(best, f"{model_name}_optimized")
             print(f"Saved optimized {model_name} to {save_path}")
 
-        print_scores(
-            "Validation Scores (Optimized):", scores_val
-            )
+        if scores_val:
+            print_scores(
+                "Validation Scores (Optimized):", scores_val
+                )
         print_scores(
             "Final Evaluation Scores (Optimized):", scores_eval
         )
