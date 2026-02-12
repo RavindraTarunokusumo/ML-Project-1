@@ -110,12 +110,14 @@ def run_randomized_search(
     estimator,
     X: pd.DataFrame,
     y: pd.Series,
-    param_distributions: dict | None = None,
+    param_distributions: dict = {},
     n_iter: int = 100,
     cv: int = 5,
     scoring: str = "neg_root_mean_squared_error",
     random_state: int = 42,
 ):
+    if not param_distributions:
+        raise ValueError("param_distributions cannot be empty for RandomizedSearchCV")
     search = RandomizedSearchCV(
         estimator=estimator,
         param_distributions=param_distributions,
