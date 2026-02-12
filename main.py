@@ -5,16 +5,18 @@
 
 import argparse
 
+import pandas as pd
 from tqdm import tqdm
 
 from src.data import DataLoader
 from src.eval import (
+    evaluate_cv,
     evaluate_holdout,
     print_scores,
     run_grid_search,
     run_randomized_search,
 )
-from src.model import build_model_pipeline
+from src.model import build_model_pipeline, save_model
 from src.preprocessing import SplitConfig, split_data, split_features_target
 
 PARAM_GRID = {
@@ -77,29 +79,46 @@ def main(args) -> None:
     X, y = split_features_target(df, target_col=target_col)
     train, val, test = split_data(X, y, cfg=split_cfg)
 
+    # Prepare training data (combine train + val if CV is used)
+    if args.cv > 1:
+        X_train_cv = pd.concat([train[0], val[0]])
+        y_train_cv = pd.concat([train[1], val[1]])
+        print(f"Using {args.cv}-fold CV on {len(X_train_cv)} samples.")
+    else:
+        X_train_cv, y_train_cv = train[0], train[1]
+        print(f"Using holdout validation on {len(train[0])} samples.")
+
     ### ---------- Basic Run (w/o GridSearch) ---------- ###
 
     scores_basic = {}
 
     for model_name in tqdm(model_names, desc="Training models"):
         pipeline = build_model_pipeline(
-            model_name, train[0], **pipeline_kwargs
+            model_name, X_train_cv, **pipeline_kwargs
         )
-        pipeline.fit(train[0], train[1])
+        
+        if args.cv > 1:
+            # Cross-validation mode
+            model_scores = evaluate_cv(
+                pipeline, X_train_cv, y_train_cv, cv=args.cv
+            )
+            # Still fit once on full training data for final test evaluation
+            pipeline.fit(X_train_cv, y_train_cv)
+        else:
+            # Holdout mode
+            pipeline.fit(train[0], train[1])
+            model_scores = evaluate_holdout(pipeline, val[0], val[1])
 
-        # Evaluate on validation set (holdout, no re-fitting)
-        if args.val_size > 0:
-            val_scores = evaluate_holdout(
-                pipeline, val[0], val[1]
-            )
-            print(
-                f"{model_name} val RMSE: {val_scores['rmse']:.2f}"
-            )
+        print(f"{model_name} val/CV RMSE: {model_scores['rmse']:.2f}")
 
         # Final test evaluation
         scores_basic[model_name] = evaluate_holdout(
             pipeline, test[0], test[1]
         )
+        
+        # Save model
+        save_path = save_model(pipeline, model_name)
+        print(f"Saved {model_name} to {save_path}")
 
     print_scores("Final Evaluation Scores:", scores_basic)
 
@@ -112,7 +131,7 @@ def main(args) -> None:
             model_names, desc="Optimizing models"
         ):
             estimator = build_model_pipeline(
-                model_name, train[0], **pipeline_kwargs
+                model_name, X_train_cv, **pipeline_kwargs
             )
             param_grid = PARAM_GRID.get(model_name)
             if param_grid and args.log_target:
@@ -123,36 +142,40 @@ def main(args) -> None:
             if model_name in {"xgboost", "catboost"}:
                 search = run_randomized_search(
                     estimator,
-                    train[0],
-                    train[1],
+                    X_train_cv,
+                    y_train_cv,
                     param_distributions=param_grid,
                     n_iter=150,
-                    cv=5,
+                    cv=args.cv if args.cv > 1 else 5,
                 )
             else:
                 search = run_grid_search(
                     estimator,
-                    train[0],
-                    train[1],
+                    X_train_cv,
+                    y_train_cv,
                     param_grid=param_grid,
-                    cv=5,
+                    cv=args.cv if args.cv > 1 else 5,
                 )
 
             best = search.best_estimator_
 
-            # Evaluate on validation set (holdout)
-            if args.val_size > 0:
-                val_scores = evaluate_holdout(
-                    best, val[0], val[1]
+            # Evaluate on validation set (holdout or CV)
+            if args.cv > 1:
+                val_scores = evaluate_cv(
+                    best, X_train_cv, y_train_cv, cv=args.cv
                 )
-                print(
-                    f"{model_name} val RMSE: "
-                    f"{val_scores['rmse']:.2f}"
-                )
+            else:
+                val_scores = evaluate_holdout(best, val[0], val[1])
+            
+            print(f"{model_name} val/CV RMSE: {val_scores['rmse']:.2f}")
 
             scores_optim[model_name] = evaluate_holdout(
                 best, test[0], test[1]
             )
+            
+            # Save optimized model
+            save_path = save_model(best, f"{model_name}_best")
+            print(f"Saved optimized {model_name} to {save_path}")
 
         print_scores(
             "Final Evaluation Scores (Optimized):", scores_optim
@@ -197,6 +220,12 @@ if __name__ == "__main__":
         "--optimize",
         action="store_true",
         help="Whether to run GridSearch optimization",
+    )
+    args.add_argument(
+        "--cv",
+        type=int,
+        default=1,
+        help="Number of folds for k-fold cross-validation (1 = holdout)",
     )
     args.add_argument(
         "--log_target",
