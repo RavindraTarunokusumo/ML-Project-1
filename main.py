@@ -19,6 +19,7 @@ from src.eval import (
 from src.model import build_model_pipeline, save_model
 from src.preprocessing import SplitConfig, split_data, split_features_target
 
+# Hyperparameter grids for GridSearchCV / RandomizedSearchCV
 PARAM_GRID = {
     "elasticnet": {
         "model__alpha": [0.001, 0.01, 0.1, 1.0, 10.0],
@@ -27,20 +28,20 @@ PARAM_GRID = {
     },
     "random_forest": {
         "model__n_estimators": [100, 200, 300, 400, 500],
-        "model__max_depth": [None, 10, 20, 30, 40],
+        "model__max_depth": [1, 3, 5, 7],
         "model__min_samples_split": [2, 5, 10, 20],
     },
     "xgboost": {
-        "model__n_estimators": [100, 300, 500, 1000],
-        "model__learning_rate": [0.01, 0.05, 0.1, 0.5],
-        "model__max_depth": [3, 6, 9, 12],
-        "model__subsample": [0.6, 0.8, 1.0],
-        "model__colsample_bytree": [0.6, 0.8, 1.0],
+        "model__n_estimators": [100, 300, 500, 700],
+        "model__learning_rate": [0.01, 0.05, 0.1, 0.3],
+        "model__max_depth": [1, 3, 5, 7],
+        "model__subsample": [0.2, 0.6, 0.8, 1.0],
+        "model__colsample_bytree": [0.2, 0.6, 0.8, 1.0],
     },
     "catboost": {
-        "model__iterations": [300, 500, 800, 1000],
+        "model__iterations": [100, 300, 500, 700],
         "model__learning_rate": [0.01, 0.05, 0.1, 0.3],
-        "model__depth": [4, 6, 8, 10],
+        "model__depth": [1, 3, 5, 7],
         "model__l2_leaf_reg": [1, 3, 5, 7],
     },
 }
@@ -58,6 +59,7 @@ def main(args) -> None:
         val_size=args.val_size,
         test_size=args.test_size,
         random_state=args.random_state,
+        shuffle=True, # Shuffle before splitting for better generalization
     )
 
     # Pipeline construction kwargs (from CLI flags)
@@ -86,11 +88,12 @@ def main(args) -> None:
         print(f"Using {args.cv}-fold CV on {len(X_train_cv)} samples.")
     else:
         X_train_cv, y_train_cv = train[0], train[1]
-        print(f"Using holdout validation on {len(train[0])} samples.")
+        print(f"Using holdout validation on {len(val[0])} samples.")
 
     ### ---------- Basic Run (w/o GridSearch) ---------- ###
 
-    scores_basic = {}
+    scores_val = {}
+    scores_eval = {}
 
     for model_name in tqdm(model_names, desc="Training models"):
         pipeline = build_model_pipeline(
@@ -108,11 +111,12 @@ def main(args) -> None:
             # Holdout mode
             pipeline.fit(train[0], train[1])
             model_scores = evaluate_holdout(pipeline, val[0], val[1])
+            scores_val[model_name] = model_scores
 
         print(f"{model_name} val/CV RMSE: {model_scores['rmse']:.2f}")
 
         # Final test evaluation
-        scores_basic[model_name] = evaluate_holdout(
+        scores_eval[model_name] = evaluate_holdout(
             pipeline, test[0], test[1]
         )
         
@@ -120,12 +124,15 @@ def main(args) -> None:
         save_path = save_model(pipeline, model_name)
         print(f"Saved {model_name} to {save_path}")
 
-    print_scores("Final Evaluation Scores:", scores_basic)
+    if scores_val:
+        print_scores("Validation Scores:", scores_val)
+    print_scores("Final Evaluation Scores:", scores_eval)
 
     ### ---------- Optimized Run (w/ GridSearch) ---------- ###
 
     if args.optimize:
-        scores_optim = {}
+        scores_val = {}
+        scores_eval = {}
 
         for model_name in tqdm(
             model_names, desc="Optimizing models"
@@ -166,19 +173,23 @@ def main(args) -> None:
                 )
             else:
                 val_scores = evaluate_holdout(best, val[0], val[1])
+                scores_val[model_name] = val_scores
             
             print(f"{model_name} val/CV RMSE: {val_scores['rmse']:.2f}")
 
-            scores_optim[model_name] = evaluate_holdout(
+            scores_eval[model_name] = evaluate_holdout(
                 best, test[0], test[1]
             )
             
             # Save optimized model
-            save_path = save_model(best, f"{model_name}_best")
+            save_path = save_model(best, f"{model_name}_optimized")
             print(f"Saved optimized {model_name} to {save_path}")
 
         print_scores(
-            "Final Evaluation Scores (Optimized):", scores_optim
+            "Validation Scores (Optimized):", scores_val
+            )
+        print_scores(
+            "Final Evaluation Scores (Optimized):", scores_eval
         )
 
 

@@ -51,6 +51,17 @@ ORDINAL_MAPPINGS: dict[str, list[str]] = {
 # Union of all ordinal column names
 ALL_ORDINAL_COLS = set(QUALITY_COLS) | set(ORDINAL_MAPPINGS)
 
+# ── Noise / near-zero-variance columns to drop ───────────────────
+NOISE_COLUMNS = [
+    "Utilities",     # 1459/1460 "AllPub"
+    "Street",        # 1454/1460 "Pave"
+    "PoolQC",        # 99.5% missing
+    "MiscFeature",   # 96.3% missing
+    "MiscVal",       # 96% zeros, skew=24.5
+    "Condition2",    # 1445/1460 "Norm"
+    "LowQualFinSF",  # 98.3% zeros, skew=9.0
+]
+
 # ── Informative missingness constants ──────────────────────────────
 # Columns where NaN means "feature absent", not "data missing"
 INFORMATIVE_MISSING_CAT = [
@@ -82,13 +93,29 @@ INFORMATIVE_MISSING_NUM = [
 class FeatureEngineer(BaseEstimator, TransformerMixin):
     """Create composite features when source columns are present."""
 
+    # Inline ordinal maps for quality-score composites (Low features)
+    _QUAL_MAP = {"Po": 1, "Fa": 2, "TA": 3, "Gd": 4, "Ex": 5}
+
     def fit(self, X, y=None):
         return self
 
+    def _ord(self, series: pd.Series) -> pd.Series:
+        """Map a quality column to numeric using _QUAL_MAP."""
+        return series.map(self._QUAL_MAP).fillna(0).astype(float)
+
     def transform(self, X):
         X = X.copy()
-        if {"1stFlrSF", "2ndFlrSF", "TotalBsmtSF", "GarageArea"}.issubset(X.columns):
-            X["TotalSF"] = X["1stFlrSF"] + X["2ndFlrSF"] + X["TotalBsmtSF"] + X["GarageArea"]
+
+        # ── Existing High-impact features ─────────────────────
+        if {"1stFlrSF", "2ndFlrSF", "TotalBsmtSF", "GarageArea"}.issubset(
+            X.columns
+        ):
+            X["TotalSF"] = (
+                X["1stFlrSF"]
+                + X["2ndFlrSF"]
+                + X["TotalBsmtSF"]
+                + X["GarageArea"]
+            )
         if {"FullBath", "HalfBath", "BsmtFullBath", "BsmtHalfBath"}.issubset(
             X.columns
         ):
@@ -106,6 +133,108 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
             X["QualArea"] = X["OverallQual"] * X["GrLivArea"]
         if "MSSubClass" in X.columns:
             X["MSSubClass"] = X["MSSubClass"].astype(str)
+
+        # ── Medium: Interaction / polynomial (priority 4) ─────
+        if "OverallQual" in X.columns:
+            X["QualSquared"] = X["OverallQual"] ** 2
+        if {"OverallQual", "TotalSF"}.issubset(X.columns):
+            X["QualTotalSF"] = X["OverallQual"] * X["TotalSF"]
+
+        # ── Medium: Area composites (priority 6) ─────────────
+        porch_cols = [
+            "OpenPorchSF",
+            "EnclosedPorch",
+            "3SsnPorch",
+            "ScreenPorch",
+            "WoodDeckSF",
+        ]
+        present_porch = [c for c in porch_cols if c in X.columns]
+        if present_porch:
+            X["TotalPorchSF"] = X[present_porch].sum(axis=1)
+
+        if {"BsmtFinSF1", "BsmtFinSF2"}.issubset(X.columns):
+            X["TotalFinBsmtSF"] = X["BsmtFinSF1"] + X["BsmtFinSF2"]
+        if {"TotalFinBsmtSF", "TotalBsmtSF"}.issubset(X.columns):
+            X["BsmtFinRatio"] = np.where(
+                X["TotalBsmtSF"] > 0,
+                X["TotalFinBsmtSF"] / X["TotalBsmtSF"],
+                0.0,
+            )
+
+        # ── Medium: Binary flags (priority 5) ────────────────
+        if "PoolArea" in X.columns:
+            X["HasPool"] = (X["PoolArea"] > 0).astype(int)
+        if "GarageArea" in X.columns:
+            X["HasGarage"] = (X["GarageArea"] > 0).astype(int)
+        if "TotalBsmtSF" in X.columns:
+            X["HasBsmt"] = (X["TotalBsmtSF"] > 0).astype(int)
+        if "Fireplaces" in X.columns:
+            X["HasFireplace"] = (X["Fireplaces"] > 0).astype(int)
+        if "2ndFlrSF" in X.columns:
+            X["Has2ndFlr"] = (X["2ndFlrSF"] > 0).astype(int)
+        if "MasVnrArea" in X.columns:
+            X["HasMasVnr"] = (X["MasVnrArea"] > 0).astype(int)
+
+        # ── Medium: Ratio / per-unit (priority 7) ────────────
+        if {"GrLivArea", "TotRmsAbvGrd"}.issubset(X.columns):
+            X["LivAreaPerRoom"] = np.where(
+                X["TotRmsAbvGrd"] > 0,
+                X["GrLivArea"] / X["TotRmsAbvGrd"],
+                0.0,
+            )
+        if {"OverallQual", "OverallCond"}.issubset(X.columns):
+            X["OverallScore"] = X["OverallQual"] * X["OverallCond"]
+
+        # ── Medium: Temporal booleans (priority 8) ────────────
+        if {"YearRemodAdd", "YearBuilt"}.issubset(X.columns):
+            X["WasRemodeled"] = (
+                X["YearRemodAdd"] != X["YearBuilt"]
+            ).astype(int)
+        if {"YrSold", "YearBuilt"}.issubset(X.columns):
+            X["IsNew"] = (X["YrSold"] == X["YearBuilt"]).astype(int)
+
+        # ── Low: Temporal (priority 11) ───────────────────────
+        if {"YrSold", "GarageYrBlt"}.issubset(X.columns):
+            X["YearsSinceGarage"] = np.where(
+                X["GarageYrBlt"] > 0,
+                X["YrSold"] - X["GarageYrBlt"],
+                -1,
+            )
+        if "MoSold" in X.columns:
+            season_map = {
+                12: 0, 1: 0, 2: 0,   # Winter
+                9: 1, 10: 1, 11: 1,   # Fall
+                3: 2, 4: 2, 5: 2,     # Spring
+                6: 3, 7: 3, 8: 3,     # Summer
+            }
+            X["SeasonSold"] = X["MoSold"].map(season_map).fillna(0)
+
+        # ── Low: Quality composite scores (priority 12) ──────
+        if {"ExterQual", "ExterCond"}.issubset(X.columns):
+            X["ExterScore"] = self._ord(X["ExterQual"]) * self._ord(
+                X["ExterCond"]
+            )
+        if {"GarageQual", "GarageCond", "GarageCars"}.issubset(X.columns):
+            X["GarageScore"] = (
+                self._ord(X["GarageQual"])
+                * self._ord(X["GarageCond"])
+                * X["GarageCars"]
+            )
+
+        # ── Low: Per-unit ratios (priority 12) ───────────────
+        if {"LotFrontage", "LotArea"}.issubset(X.columns):
+            X["LotFrontageRatio"] = np.where(
+                X["LotArea"] > 0,
+                X["LotFrontage"].fillna(0) / X["LotArea"],
+                0.0,
+            )
+        if {"GarageArea", "GarageCars"}.issubset(X.columns):
+            X["GarageAreaPerCar"] = np.where(
+                X["GarageCars"] > 0,
+                X["GarageArea"] / X["GarageCars"],
+                0.0,
+            )
+
         return X
 
 
@@ -142,6 +271,40 @@ class NeighborhoodTargetEncoder(BaseEstimator, TransformerMixin):
         col_name = "NeighMedianPrice" if self.stat == "median" else "NeighMeanPrice"
         X[col_name] = X[self.column].map(self.mapping_)
         X[col_name] = X[col_name].fillna(self.global_stat_)
+        return X
+
+
+class LotFrontageImputer(BaseEstimator, TransformerMixin):
+    """Impute LotFrontage using per-Neighborhood median (fit on train)."""
+
+    def __init__(
+        self,
+        target_col: str = "LotFrontage",
+        group_col: str = "Neighborhood",
+    ):
+        self.target_col = target_col
+        self.group_col = group_col
+
+    def fit(self, X, y=None):
+        if self.target_col in X.columns and self.group_col in X.columns:
+            self.medians_ = (
+                X.groupby(self.group_col)[self.target_col].median()
+            )
+            self.global_median_ = X[self.target_col].median()
+        else:
+            self.medians_ = None
+            self.global_median_ = None
+        return self
+
+    def transform(self, X):
+        if self.medians_ is None or self.target_col not in X.columns:
+            return X
+        X = X.copy()
+        missing = X[self.target_col].isna()
+        if missing.any():
+            fill_vals = X[self.group_col].map(self.medians_)
+            fill_vals = fill_vals.fillna(self.global_median_)
+            X.loc[missing, self.target_col] = fill_vals[missing]
         return X
 
 
@@ -256,6 +419,7 @@ def build_preprocessor(
     scale_numeric: bool = False,
     drop_missing_threshold: float | None = 0.8,
     drop_columns: Iterable[str] | None = ("Id",),
+    drop_noise: bool = True,
     use_pca: bool = False,
     pca_n_components: int | float | None = None,
     use_ordinal_encoding: bool = False,
@@ -265,6 +429,10 @@ def build_preprocessor(
     if drop_columns:
         drop_cols.update(
             col for col in drop_columns if col in X.columns
+        )
+    if drop_noise:
+        drop_cols.update(
+            col for col in NOISE_COLUMNS if col in X.columns
         )
     if drop_missing_threshold is not None:
         missing_pct = X.isna().mean()

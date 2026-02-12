@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import joblib
@@ -13,6 +12,7 @@ from sklearn.pipeline import Pipeline
 from src.preprocessing import (
     FeatureEngineer,
     InformativeMissingFiller,
+    LotFrontageImputer,
     NeighborhoodTargetEncoder,
     build_preprocessor,
 )
@@ -30,6 +30,7 @@ def _assemble_pipeline(
     if fill_informative_missing:
         steps.append(("fill_missing", InformativeMissingFiller()))
     if feature_engineering:
+        steps.append(("lot_frontage_impute", LotFrontageImputer()))
         steps.append(("engineer", FeatureEngineer()))
         steps.append(("target_encode", NeighborhoodTargetEncoder()))
     steps.append(("preprocess", preprocessor))
@@ -47,6 +48,7 @@ def _get_x_for_preprocessor(
     if fill_informative_missing:
         X_p = InformativeMissingFiller().transform(X_p)
     if feature_engineering:
+        X_p = LotFrontageImputer().fit_transform(X_p)
         X_p = FeatureEngineer().transform(X_p)
         # Placeholder for columns added by NeighborhoodTargetEncoder
         X_p["NeighMedianPrice"] = 0.0
