@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -9,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from src.preprocessing import (
     FeatureEngineer,
     InformativeMissingFiller,
+    NeighborhoodTargetEncoder,
     build_preprocessor,
 )
 
@@ -26,9 +31,26 @@ def _assemble_pipeline(
         steps.append(("fill_missing", InformativeMissingFiller()))
     if feature_engineering:
         steps.append(("engineer", FeatureEngineer()))
+        steps.append(("target_encode", NeighborhoodTargetEncoder()))
     steps.append(("preprocess", preprocessor))
     steps.append(("model", model))
     return Pipeline(steps=steps)
+
+
+def _get_x_for_preprocessor(
+    X: pd.DataFrame,
+    fill_informative_missing: bool,
+    feature_engineering: bool,
+) -> pd.DataFrame:
+    """Apply early transformations to X so build_preprocessor sees correct columns/types."""
+    X_p = X.copy()
+    if fill_informative_missing:
+        X_p = InformativeMissingFiller().transform(X_p)
+    if feature_engineering:
+        X_p = FeatureEngineer().transform(X_p)
+        # Placeholder for columns added by NeighborhoodTargetEncoder
+        X_p["NeighMedianPrice"] = 0.0
+    return X_p
 
 
 def build_elasticnet_pipeline(
@@ -41,8 +63,11 @@ def build_elasticnet_pipeline(
 ):
     from sklearn.linear_model import ElasticNet
 
+    X_for_prep = _get_x_for_preprocessor(
+        X, fill_informative_missing, feature_engineering
+    )
     preprocessor = build_preprocessor(
-        X,
+        X_for_prep,
         scale_numeric=True,
         use_pca=True,
         pca_n_components=0.95,
@@ -68,8 +93,11 @@ def build_random_forest_pipeline(
 ):
     from sklearn.ensemble import RandomForestRegressor
 
+    X_for_prep = _get_x_for_preprocessor(
+        X, fill_informative_missing, feature_engineering
+    )
     preprocessor = build_preprocessor(
-        X,
+        X_for_prep,
         scale_numeric=False,
         use_pca=False,
         use_ordinal_encoding=use_ordinal_encoding,
@@ -102,8 +130,11 @@ def build_xgboost_pipeline(
             "Install with `pip install xgboost`."
         ) from exc
 
+    X_for_prep = _get_x_for_preprocessor(
+        X, fill_informative_missing, feature_engineering
+    )
     preprocessor = build_preprocessor(
-        X,
+        X_for_prep,
         scale_numeric=False,
         use_ordinal_encoding=use_ordinal_encoding,
         correct_skewness=correct_skewness,
@@ -186,8 +217,11 @@ def build_catboost_pipeline(
             "Install with `pip install catboost`."
         ) from exc
 
+    X_for_prep = _get_x_for_preprocessor(
+        X, fill_informative_missing, feature_engineering
+    )
     preprocessor = build_preprocessor(
-        X,
+        X_for_prep,
         scale_numeric=False,
         use_ordinal_encoding=use_ordinal_encoding,
         correct_skewness=correct_skewness,
@@ -243,3 +277,15 @@ def build_model_pipeline(
             inverse_func=np.expm1,
         )
     return pipeline
+
+
+def save_model(
+    model: object, model_name: str, base_path: str = "model"
+) -> Path:
+    """Save a trained model/pipeline to the specified directory."""
+    dir_path = Path(base_path)
+    dir_path.mkdir(parents=True, exist_ok=True)
+    
+    file_path = dir_path / f"{model_name.lower()}.joblib"
+    joblib.dump(model, file_path)
+    return file_path
