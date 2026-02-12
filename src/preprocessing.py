@@ -87,8 +87,8 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         X = X.copy()
-        if {"1stFlrSF", "2ndFlrSF", "TotalBsmtSF"}.issubset(X.columns):
-            X["TotalSF"] = X["1stFlrSF"] + X["2ndFlrSF"] + X["TotalBsmtSF"]
+        if {"1stFlrSF", "2ndFlrSF", "TotalBsmtSF", "GarageArea"}.issubset(X.columns):
+            X["TotalSF"] = X["1stFlrSF"] + X["2ndFlrSF"] + X["TotalBsmtSF"] + X["GarageArea"]
         if {"FullBath", "HalfBath", "BsmtFullBath", "BsmtHalfBath"}.issubset(
             X.columns
         ):
@@ -102,6 +102,46 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
             X["HouseAge"] = X["YrSold"] - X["YearBuilt"]
         if "YearRemodAdd" in X.columns and "YrSold" in X.columns:
             X["RemodAge"] = X["YrSold"] - X["YearRemodAdd"]
+        if {"OverallQual", "GrLivArea"}.issubset(X.columns):
+            X["QualArea"] = X["OverallQual"] * X["GrLivArea"]
+        if "MSSubClass" in X.columns:
+            X["MSSubClass"] = X["MSSubClass"].astype(str)
+        return X
+
+
+class NeighborhoodTargetEncoder(BaseEstimator, TransformerMixin):
+    """Target encode Neighborhood using a summary statistic (median or mean)."""
+
+    def __init__(self, column: str = "Neighborhood", stat: str = "median"):
+        self.column = column
+        self.stat = stat
+        self.mapping_ = None
+        self.global_stat_ = None
+
+    def fit(self, X, y=None):
+        if y is None:
+            return self
+        
+        # Ensure X is a DataFrame and y is a Series
+        y_series = pd.Series(y) if not isinstance(y, pd.Series) else y
+        # We need to align indexes if they are different
+        y_series.index = X.index
+        
+        if self.stat == "median":
+            self.mapping_ = y_series.groupby(X[self.column]).median()
+            self.global_stat_ = y_series.median()
+        else:
+            self.mapping_ = y_series.groupby(X[self.column]).mean()
+            self.global_stat_ = y_series.mean()
+        return self
+
+    def transform(self, X):
+        if self.mapping_ is None:
+            return X
+        X = X.copy()
+        col_name = "NeighMedianPrice" if self.stat == "median" else "NeighMeanPrice"
+        X[col_name] = X[self.column].map(self.mapping_)
+        X[col_name] = X[col_name].fillna(self.global_stat_)
         return X
 
 
@@ -170,7 +210,8 @@ def split_features_target(
 
 
 def split_data(
-    X: pd.DataFrame, y: pd.Series, cfg: SplitConfig | None = None
+    X: pd.DataFrame, y: pd.Series, 
+    cfg: SplitConfig | None = None
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     cfg = cfg or SplitConfig()
     holdout_size = cfg.val_size + cfg.test_size
@@ -183,10 +224,6 @@ def split_data(
         random_state=cfg.random_state,
         shuffle=cfg.shuffle,
     )
-    
-    if cfg.val_size == 0:
-        # No validation set, return test only
-        return (X_train, y_train), (pd.DataFrame(), pd.Series()), (X_holdout, y_holdout)
     
     # Get relative test size
     test_ratio = cfg.test_size / holdout_size
